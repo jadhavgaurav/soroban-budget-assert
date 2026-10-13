@@ -939,7 +939,7 @@ Consumed only by `--derive-limits`. Each scenario sums the Tier B values of its 
 
 | Field | Type | Required | Default | Effect |
 |---|---|---|---|---|
-| `package` | string | effectively yes | `""` | Package namespace of the scenario. The derived env-var key is `<package>::<name>`; omitting `package` yields `::<name>`, which will not line up with a test annotation. |
+| `package` | string | effectively yes | `""` | Package namespace of the scenario. The derived env-var key is `<package>::<name>`; omitting `package` yields `::<name>`, which will not line up with a test annotation. A `package` that matches none of the scenario's functions in the Tier B report (omitted or misspelled) makes `--derive-limits` fail with an error naming the scenario. |
 | `functions` | array of strings | no | `[]` | Exported function names whose Tier B values are summed into the scenario's Tier A limit. |
 
 Syntax is `[scenarios.<name>]` — a table of tables — despite some doc comments spelling it `[[scenarios.<name>]]`.

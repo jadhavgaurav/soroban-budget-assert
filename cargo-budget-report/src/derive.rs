@@ -338,6 +338,8 @@ impl Derivation {
                 .map(|(p, n)| (p.to_string(), n.to_string()))
                 .unwrap_or_else(|| ("".to_string(), scenario_full_key.clone()));
 
+            let mut metrics_checked = false;
+            let mut any_measurement_matched = false;
             for metric_label in [
                 "CPU Instructions",
                 "Memory Bytes",
@@ -348,6 +350,7 @@ impl Derivation {
                     Some(m) => m,
                     None => continue,
                 };
+                metrics_checked = true;
                 let mut total_tier_b: u64 = 0;
                 let mut missing: Vec<String> = Vec::new();
                 for component in components {
@@ -363,6 +366,7 @@ impl Derivation {
                 if missing.len() == components.len() {
                     continue;
                 }
+                any_measurement_matched = true;
                 if !missing.is_empty() {
                     return Err(Error::Message(format!(
                         "scenario {scenario_full_key} includes component(s) {missing:?} \
@@ -387,6 +391,14 @@ impl Derivation {
                      × margin={margin:.4} = {tier_a_limit}"
                     ),
                 });
+            }
+            if metrics_checked && !any_measurement_matched {
+                return Err(Error::Message(format!(
+                    "scenario {scenario_full_key} matches no Tier B measurements: \
+                     none of its component(s) {components:?} has a value under \
+                     package {scenario_pkg:?}; check the scenario's `package` \
+                     in budget.toml and run `cargo budget-report` to refresh the report"
+                )));
             }
         }
         Ok(())
@@ -760,6 +772,91 @@ mod tests {
         };
         let err = Derivation::from_report(&measurements, &config).unwrap_err();
         assert!(format!("{err}").contains("ghost"), "err: {err}");
+    }
+
+    fn single_scenario_config(key: &str, components: &[&str]) -> DerivationConfig {
+        let mut scenarios = BTreeMap::new();
+        scenarios.insert(
+            key.to_string(),
+            components.iter().map(|c| c.to_string()).collect(),
+        );
+        DerivationConfig {
+            margin: margin(),
+            scenarios,
+        }
+    }
+
+    #[test]
+    fn scenario_with_misspelled_package_errors() {
+        let measurements = vec![
+            tier_b("amm-pool-contract", "deposit", "CPU Instructions", 100),
+            tier_b("amm-pool-contract", "swap", "CPU Instructions", 200),
+        ];
+        let config =
+            single_scenario_config("amm-pool-contrct::full_workflow", &["deposit", "swap"]);
+        let err = Derivation::from_report(&measurements, &config)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("amm-pool-contrct::full_workflow"),
+            "err: {err}"
+        );
+        assert!(err.contains("package \"amm-pool-contrct\""), "err: {err}");
+        assert!(err.contains("cargo budget-report"), "err: {err}");
+    }
+
+    #[test]
+    fn scenario_without_package_errors_with_resolved_key() {
+        let measurements = vec![tier_b(
+            "amm-pool-contract",
+            "deposit",
+            "CPU Instructions",
+            100,
+        )];
+        let config = single_scenario_config("::full_workflow", &["deposit"]);
+        let err = Derivation::from_report(&measurements, &config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("::full_workflow"), "err: {err}");
+        assert!(err.contains("package \"\""), "err: {err}");
+    }
+
+    #[test]
+    fn scenario_matching_only_some_metrics_still_derives() {
+        let measurements = vec![tier_b(
+            "amm-pool-contract",
+            "deposit",
+            "CPU Instructions",
+            100,
+        )];
+        let config = single_scenario_config("amm-pool-contract::full_workflow", &["deposit"]);
+        let derivation = Derivation::from_report(&measurements, &config).unwrap();
+        let scenario_keys: Vec<&str> = derivation
+            .limits
+            .iter()
+            .map(|l| l.key.as_str())
+            .filter(|k| k.contains("SCENARIO"))
+            .collect();
+        assert_eq!(
+            scenario_keys,
+            ["TIER_A__AMM_POOL_CONTRACT__SCENARIO__FULL_WORKFLOW__CPU"]
+        );
+    }
+
+    #[test]
+    fn scenario_with_no_components_is_a_no_op() {
+        let measurements = vec![tier_b(
+            "amm-pool-contract",
+            "deposit",
+            "CPU Instructions",
+            100,
+        )];
+        let config = single_scenario_config("nowhere::empty", &[]);
+        let derivation = Derivation::from_report(&measurements, &config).unwrap();
+        assert!(derivation
+            .limits
+            .iter()
+            .all(|l| !l.key.contains("SCENARIO")));
     }
 
     #[test]

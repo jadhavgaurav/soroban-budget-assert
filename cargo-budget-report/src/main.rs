@@ -379,8 +379,8 @@ impl MarginToml {
 pub(crate) struct ScenarioToml {
     /// (package, scenario_name) namespace prefix used to scope this
     /// scenario. Without a package, the scenario is treated as package
-    /// `""`, which is rarely what callers want — the error path
-    /// surfaces that problem.
+    /// `""`, which matches no Tier B measurement, so `--derive-limits`
+    /// fails with an error naming the scenario rather than dropping it.
     #[serde(default)]
     package: Option<String>,
     /// Names of component functions whose Tier B values sum into this
